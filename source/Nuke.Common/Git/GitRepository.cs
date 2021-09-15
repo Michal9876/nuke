@@ -1,4 +1,4 @@
-// Copyright 2019 Maintainers of NUKE.
+﻿// Copyright 2019 Maintainers of NUKE.
 // Distributed under the MIT License.
 // https://github.com/nuke-build/nuke/blob/master/LICENSE
 
@@ -28,10 +28,11 @@ namespace Nuke.Common.Git
 
         public static GitRepository FromUrl(string url, string branch = null)
         {
-            var (protocol, endpoint, identifier) = GetRemoteConnectionFromUrl(url);
+            var (protocol, endpoint, port, identifier) = GetRemoteConnectionFromUrl(url);
             return new GitRepository(
                 protocol,
                 endpoint,
+                port,
                 identifier,
                 branch,
                 localDirectory: null,
@@ -56,11 +57,12 @@ namespace Nuke.Common.Git
             var commit = (Host.Instance as IBuildServer)?.Commit ?? GetCommitFromHead(gitDirectory, head);
             var tags = GetTagsFromCommit(gitDirectory, commit);
             var (remoteName, remoteBranch) = GetRemoteNameAndBranch(gitDirectory, branch);
-            var (protocol, endpoint, identifier) = GetRemoteConnectionFromConfig(gitDirectory, remoteName ?? FallbackRemoteName);
+            var (protocol, endpoint, port, identifier) = GetRemoteConnectionFromConfig(gitDirectory, remoteName ?? FallbackRemoteName);
 
             return new GitRepository(
                 protocol,
                 endpoint,
+                port,
                 identifier,
                 branch,
                 rootDirectory,
@@ -148,7 +150,7 @@ namespace Nuke.Common.Git
             return localTags.Concat(packedTags).ToList();
         }
 
-        private static (GitProtocol Protocol, string Endpoint, string Identifier) GetRemoteConnectionFromUrl(string url)
+        private static (GitProtocol Protocol, string Endpoint, int? Port, string Identifier) GetRemoteConnectionFromUrl(string url)
         {
             var regex = new Regex(
                 @"^(?'protocol'\w+)?(\:\/\/)?(?>(?'user'.*)@)?(?'endpoint'[^\/:]+)(?>\:(?'port'\d+))?[\/:](?'identifier'.*?)\/?(?>\.git)?$");
@@ -158,10 +160,13 @@ namespace Nuke.Common.Git
             var protocol = match.Groups["protocol"].Value.EqualsOrdinalIgnoreCase(GitProtocol.Https.ToString())
                 ? GitProtocol.Https
                 : GitProtocol.Ssh;
-            return (protocol, match.Groups["endpoint"].Value, match.Groups["identifier"].Value);
+            int? matchedPort = null;
+            if (int.TryParse(match.Groups["port"]?.Value, out var port))
+                matchedPort = port;
+            return (protocol, match.Groups["endpoint"].Value, matchedPort, match.Groups["identifier"].Value);
         }
 
-        private static (GitProtocol Protocol, string Endpoint, string Identifier) GetRemoteConnectionFromConfig(string gitDirectory, string remote)
+        private static (GitProtocol Protocol, string Endpoint, int? Port, string Identifier) GetRemoteConnectionFromConfig(string gitDirectory, string remote)
         {
             var configFile = Path.Combine(gitDirectory, "config");
             var configFileContent = File.ReadAllLines(configFile);
@@ -180,6 +185,7 @@ namespace Nuke.Common.Git
         public GitRepository(
             GitProtocol protocol,
             string endpoint,
+            int? port,
             string identifier,
             string branch,
             string localDirectory,
@@ -191,6 +197,7 @@ namespace Nuke.Common.Git
         {
             Protocol = protocol;
             Endpoint = endpoint;
+            Port = port;
             Identifier = identifier;
             Branch = branch;
             LocalDirectory = localDirectory;
@@ -206,6 +213,8 @@ namespace Nuke.Common.Git
 
         /// <summary>Endpoint for the repository. For instance <em>github.com</em>.</summary>
         public string Endpoint { get; private set; }
+
+        public int? Port { get; private set; }
 
         /// <summary>Identifier of the repository.</summary>
         public string Identifier { get; private set; }
@@ -235,16 +244,17 @@ namespace Nuke.Common.Git
         public string Branch { get; private set; }
 
         /// <summary>Url in the form of <c>https://endpoint/identifier.git</c></summary>
-        public string HttpsUrl => $"https://{Endpoint}/{Identifier}.git";
+        public string HttpsUrl => Port == null ? $"https://{Endpoint}/{Identifier}.git" : $"https://{Endpoint}:{Port}/{Identifier}.git";
 
         /// <summary>Url in the form of <c>git@endpoint:identifier.git</c></summary>
-        public string SshUrl => $"git@{Endpoint}:{Identifier}.git";
+        public string SshUrl => Port == null ? $"git@{Endpoint}:{Identifier}.git" : $"git@{Endpoint}:{Port}/{Identifier}.git";
 
         public GitRepository SetBranch(string branch)
         {
             return new GitRepository(
                 Protocol,
                 Endpoint,
+                Port,
                 Identifier,
                 branch,
                 LocalDirectory,
