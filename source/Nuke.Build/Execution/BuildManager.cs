@@ -6,7 +6,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Runtime.CompilerServices;
 using System.Text;
+using Microsoft.Extensions.DependencyModel;
 using Nuke.Common.Tooling;
 using Nuke.Common.Utilities;
 using Nuke.Common.Utilities.Collections;
@@ -24,6 +26,14 @@ namespace Nuke.Common.Execution
         {
             add => s_cancellationHandlers.AddFirst(value);
             remove => s_cancellationHandlers.Remove(value);
+        }
+
+        [ModuleInitializer]
+        public static void Initialize()
+        {
+            DependencyContext.Default?.GetRuntimeAssemblyNames(string.Empty)
+                .Where(x => x.FullName.StartsWith("Nuke."))
+                .ForEach(x => AppDomain.CurrentDomain.Load(x));
         }
 
         public static int Execute<T>(Expression<Func<T, Target>>[] defaultTargetExpressions)
